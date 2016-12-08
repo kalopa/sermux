@@ -72,5 +72,5 @@ void		buf_flush(struct channel *);
 int		buf_read(struct channel *);
 int		buf_write(struct channel *, int);
 int		crack(char *, char *[], int);
-void		error(char *);
+void		usage();
 void		hexdump(char *, int, int);

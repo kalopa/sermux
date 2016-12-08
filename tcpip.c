@@ -32,6 +32,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <syslog.h>
 #include <string.h>
 
 #include "sermux.h"
@@ -51,7 +52,7 @@ tcp_newconn(struct channel *chp)
 	nchp = chan_alloc();
 	printf("Going to accept...\n");
 	if ((nchp->fd = accept(chp->fd, (struct sockaddr *)&sin, &len)) < 0) {
-		perror("tcp_newconn");
+		syslog(LOG_INFO, "tcp_newconn failed: %m");
 		return(-1);
 	}
 	printf("Back from accept(). Addr:[%08x]\n", sin.sin_addr.s_addr);
@@ -72,17 +73,21 @@ tcp_init(int port)
 	struct sockaddr_in sin;
 
 	printf("TCP INIT: Port%d\n", port);
-	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-		error("tcp_init: socket");
-	if (setsockopt(chp->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0)
-		error("tcp_init: setsockopt");
+	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("tcp_init: socket failed");
+		exit(1);
+	}
+	if (setsockopt(chp->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+		perror("tcp_init: setsockopt failed");
+		exit(1);
+	}
 	memset((char *)&sin, 0, sizeof(struct sockaddr_in));
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = INADDR_ANY;
 	sin.sin_port = htons(port);
 	if (bind(chp->fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		perror("tcp_init: bind");
-		error("cannot bind to socket");
+		exit(1);
 	}
 	listen(chp->fd, 64);
 	printf("LISTEN Socket UP!\n");
@@ -104,30 +109,32 @@ tcp_master(char *argstr)
 
 	printf("TCP Remote Init: [%s]\n", argstr);
 	if ((i = crack(argstr, params, 4)) < 1)
-		error("invalid remote tcp parameters");
+		usage();
 	host = params[0];
 	port = (i > 1) ? atoi(params[1]) : 5000;
 	if (host == NULL || *host == '\0')
-		error("invalid remote host specification");
+		usage();
 	if ((addr = inet_addr(host)) == INADDR_NONE) {
 		struct hostent *hp;
 
 		if ((hp = gethostbyname(host)) == NULL) {
-			fprintf(stderr, "Unresolved hostname: %s\n", host);
-			error("cannot find remote host");
+			fprintf(stderr, "?Unresolved hostname: %s\n", host);
+			exit(1);
 		}
 		memcpy((char *)&addr, hp->h_addr, hp->h_length);
 	}
 	printf("%08x\n", addr);
-	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-		error("tcp_master: socket");
+	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("tcp_master: socket");
+		exit(1);
+	}
 	memset((char *)&sin, 0, sizeof(struct sockaddr_in));
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = addr;
 	sin.sin_port = htons(port);
 	if (connect(chp->fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-		perror("tcp_master: connect");
-		error("cannot connect to remote host");
+		perror("tcp_master: connect failed");
+		exit(1);
 	}
 	proc_set_master(chp);
 }

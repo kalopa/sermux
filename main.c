@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <syslog.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -73,12 +75,62 @@ main(int argc, char *argv[])
 	}
 	if ((argc - optind) != 1)
 		usage();
+	/*
+	 * Process the command-line.
+	 */
 	device = strdup(argv[optind]);
 	if (*device == '/')
 		serial_master(device);
 	else
 		tcp_master(device);
 	tcp_init(portno);
+	/*
+	 * Set up in the background, where appropriate...
+	 */
+	openlog("sermux", LOG_PID, LOG_DAEMON);
+	if (!debug) {
+		/*
+		 * Fork off as a daemon.
+		 */
+		if ((i = fork()) == -1) {
+			perror("sermux: fork failed");
+			exit(1);
+		}
+		if (i != 0)
+			exit(0);
+		/*
+		 * Close all file descriptors and try to detach from
+		 * everything.
+		 */
+		close(0);
+		close(1);
+		close(2);
+		/*
+		 * No signals...
+		 */
+		signal(SIGTERM, SIG_IGN);
+		signal(SIGHUP, SIG_IGN);
+		signal(SIGINT, SIG_IGN);
+		signal(SIGQUIT, SIG_IGN);
+		signal(SIGPIPE, SIG_IGN);
+		signal(SIGALRM, SIG_IGN);
+		signal(SIGURG, SIG_IGN);
+		signal(SIGTSTP, SIG_IGN);
+		signal(SIGCONT, SIG_IGN);
+		signal(SIGCHLD, SIG_IGN);
+		signal(SIGTTIN, SIG_IGN);
+		signal(SIGTTOU, SIG_IGN);
+		signal(SIGXCPU, SIG_IGN);
+		signal(SIGXFSZ, SIG_IGN);
+		signal(SIGVTALRM, SIG_IGN);
+		signal(SIGPROF, SIG_IGN);
+		signal(SIGWINCH, SIG_IGN);
+		signal(SIGUSR1, SIG_IGN);
+		signal(SIGUSR2, SIG_IGN);
+	}
+	/*
+	 * Now running as a daemon. Get to work!
+	 */
 	while (1)
 		chan_poll();
 	exit(0);
@@ -104,16 +156,6 @@ crack(char *strp, char *argv[], int maxargs)
 			break;
 	}
 	return(n + 1);
-}
-
-/*
- *
- */
-void
-error(char *msg)
-{
-	fprintf(stderr, "?Error - %s.\n", msg);
-	exit(1);
 }
 
 /*

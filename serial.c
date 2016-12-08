@@ -32,6 +32,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <syslog.h>
 #include <string.h>
 
 #include "sermux.h"
@@ -74,27 +75,32 @@ serial_master(char *argstr)
 
 	printf("Serial Init: [%s]\n", argstr);
 	if ((i = crack(argstr, params, 4)) < 1)
-		error("invalid serial device parameters");
+		usage();
 
 	baud = (i > 1) ? atoi(params[1]) : 9600;
 	settings = (i > 2) ? params[2] : "8N1";
 	if (strlen(settings) != 3)
-		error("invalid serial settings");
+		usage();
 	if ((chp->fd = open(params[0], O_RDWR|O_NOCTTY|O_NDELAY)) < 0) {
+		fprintf(stderr, "?Cannot open serial device: ");
 		perror(params[0]);
-		error("cannot open serial device");
+		exit(1);
 	}
 	/*
 	 * Get and set the tty parameters.
 	 */
 	printf(">SERIAL FD%d:, Spd: %d, Params: [%s]\n", chp->fd, baud, settings);
-	if (tcgetattr(chp->fd, &tios) < 0)
-		error("serial_chan: tcgetattr failed");
+	if (tcgetattr(chp->fd, &tios) < 0) {
+		perror("serial_master: tcgetattr failed");
+		exit(1);
+	}
 	for (i = 0; speeds[i].value > 0; i++)
 		if (speeds[i].value == baud)
 			break;
-	if (speeds[i].value == 0)
-		error("invalid serial baud rate");
+	if (speeds[i].value == 0) {
+		fprintf(stderr, "?Invalid serial baud rate: %d\n", baud);
+		exit(1);
+	}
 
 	cfsetispeed(&tios, speeds[i].code);
 	cfsetospeed(&tios, speeds[i].code);
@@ -133,7 +139,9 @@ serial_master(char *argstr)
 	tios.c_lflag = tios.c_iflag = tios.c_oflag = 0;
 	tios.c_cc[VMIN] = 0;
 	tios.c_cc[VTIME] = 10;
-	if (tcsetattr(chp->fd, TCSANOW, &tios) < 0)
-		error("serial_chan: tcsetattr failed");
+	if (tcsetattr(chp->fd, TCSANOW, &tios) < 0) {
+		perror("serial_master: tcsetattr failed");
+		exit(1);
+	}
 	proc_set_master(chp);
 }

@@ -1,0 +1,9 @@
+Package: sermux
+Version: 0.1-1
+Section: base
+Priority: optional
+Architecture: all
+Depends: libc6-dev
+Maintainer: Dermot Tynan <dtynan@kalopa.com>
+Description: Serial Multiplexor
+ Connect multiple applications to a single serial port.

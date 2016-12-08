@@ -27,8 +27,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/select.h>
+#include <syslog.h>
+#include <string.h>
 
 #include "sermux.h"
 
@@ -59,8 +60,8 @@ chan_alloc()
 		cfreelist = chp->next;
 	else {
 		if ((chp = (struct channel *)malloc(sizeof(struct channel))) == NULL) {
-			perror("channel_alloc: malloc");
-			error("cannot allocate new channel");
+			syslog(LOG_ERR, "chan_alloc() malloc: %m");
+			exit(1);
 		}
 	}
 	chp->fd = -1;
@@ -130,8 +131,8 @@ chan_poll()
 	} else
 		tvp = NULL;
 	if ((n = select(maxfds, &rfds, &wfds, NULL, tvp)) < 0) {
-		perror("select");
-		error("chan_poll: select failed");
+		syslog(LOG_ERR, "select failure in chan_poll: %m");
+		exit(1);
 	}
 	printf("Select returned %d.\n", n);
 	if (n == 0) {

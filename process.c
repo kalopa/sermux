@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <syslog.h>
 #include <string.h>
 
 #include "sermux.h"
@@ -53,6 +54,12 @@ void
 proc_set_slave(struct channel *chp)
 {
 	printf("Setting channel %d as new active slave.\n", chp->channo);
+	{
+		struct channel *xp;
+
+		for (xp = master; xp != NULL; xp = xp->mqnext)
+			printf("CH%d...\n", xp->channo);
+	}
 	if (master->mqnext == NULL) {
 		/*
 		 * Master is free and we have a new slave.
@@ -66,7 +73,7 @@ proc_set_slave(struct channel *chp)
 		 * back of the queue. You'll have to wait for this
 		 * current guy to go idle...
 		 */
-		for (nchp = master; nchp->mqnext != NULL; nchp = nchp->mqnext)
+		for (nchp = master; nchp->mqnext != NULL && nchp->mqnext != chp; nchp = nchp->mqnext)
 			;
 		nchp->mqnext = chp;
 	}
@@ -84,8 +91,10 @@ proc_release(struct channel *chp)
 
 	if (master == NULL || master->mqnext == NULL)
 		return;
-	if (master == chp)
-		error("attempt to release master!!?!?  Now is a good time to panic");
+	if (master == chp) {
+		syslog(LOG_ERR, "attempt to release master channel");
+		exit(1);
+	}
 	if (master->mqnext == chp) {
 		/*
 		 * This current slave channel is dead. Oh well...
@@ -103,6 +112,7 @@ proc_release(struct channel *chp)
 			}
 		}
 	}
+	chp->mqnext = NULL;
 }
 
 /*
@@ -122,9 +132,13 @@ proc_busy()
 void
 proc_timeout()
 {
+	struct channel *chp;
+
 	printf("TIMEOUT!\n");
 	if (proc_busy()) {
-		master->mqnext = master->mqnext->mqnext;
+		chp = master->mqnext;
+		master->mqnext = chp->mqnext;
+		chp->mqnext = NULL;
 		chan_readon(master);
 		chan_writeon(master);
 	}
@@ -206,8 +220,10 @@ slave_read(struct channel *chp)
 	/*
 	 * Error-out if no master (which can't happen).
 	 */
-	if (master == NULL)
-		error("no master?!?! Now is a good time to panic");
+	if (master == NULL) {
+		syslog(LOG_ERR, "panic: no master!");
+		exit(1);
+	}
 	proc_set_slave(chp);
 	return(n);
 }

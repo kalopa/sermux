@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <syslog.h>
 #include <string.h>
 
 #include "sermux.h"
@@ -45,8 +46,8 @@ buf_alloc()
 		bfreelist = bp->next;
 	else {
 		if ((bp = (struct buffer *)malloc(sizeof(struct buffer))) == NULL) {
-			perror("buffer_alloc: malloc");
-			error("cannot allocate new buffer");
+			syslog(LOG_ERR, "buf_alloc() malloc: %m");
+			exit(1);
 		}
 	}
 	bp->size = 0;
@@ -127,7 +128,7 @@ buf_write(struct channel *chp, int wrfd)
 	bp = chp->bqhead;
 	chp->bqhead = bp->next;
 	if ((n = write(wrfd, bp->data, bp->size)) != bp->size) {
-		perror("write failure");
+		syslog(LOG_INFO, "buffer write failure");
 		return(-1);
 	}
 	printf("Wrote %d bytes.\n", n);

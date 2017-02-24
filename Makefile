@@ -42,4 +42,4 @@ sermux:	$(OBJS)
 tags:	$(SRCS)
 	ctags $(SRCS)
 
-%(OBJS): sermux.h
+$(OBJS): sermux.h

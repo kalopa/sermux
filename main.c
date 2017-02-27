@@ -163,7 +163,7 @@ crack(char *strp, char *argv[], int maxargs)
 }
 
 /*
- *
+ * Hex dump of a block of data - for debugging.
  */
 void
 hexdump(char *data, int addr, int len)

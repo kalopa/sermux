@@ -35,7 +35,8 @@
 struct	buffer	*freelist = NULL;
 
 /*
- *
+ * Allocate a free buffer. If there's one on the free list, use that.
+ * Otherwise, allocate one.
  */
 struct buffer *
 buf_alloc()
@@ -56,7 +57,7 @@ buf_alloc()
 }
 
 /*
- *
+ * Free up a buffer by sticking it on the free list.
  */
 void
 buf_free(struct buffer *bp)
@@ -66,21 +67,21 @@ buf_free(struct buffer *bp)
 }
 
 /*
- *
+ * Flush all the buffers on a given channel.
  */
 void
 buf_flush(struct channel *chp)
 {
 	struct buffer *bp;
 
-	while ((bp = chp->bqhead) != NULL) {
-		chp->bqhead = bp->next;
+	while ((bp = chp->bhead) != NULL) {
+		chp->bhead = bp->next;
 		buf_free(bp);
 	}
 }
 
 /*
- *
+ * Read data for a specific channel into a buffer and queue up the buffer.
  */
 int
 buf_read(struct channel *chp)
@@ -90,7 +91,7 @@ buf_read(struct channel *chp)
 	/*
 	 * Read from the device.
 	 */
-	if ((bp->size = read(chp->fd, bp->data, LINELEN)) <= 0) {
+	if ((bp->size = read(chp->fd, bp->data, READSIZE)) <= 0) {
 		buf_free(bp);
 		return(-1);
 	}
@@ -100,12 +101,12 @@ buf_read(struct channel *chp)
 	 * Stick the buffer on the end of the channel read queue.
 	 */
 	chp->totread += bp->size;
-	if (chp->bqhead == NULL)
-		chp->bqhead = bp;
+	if (chp->bhead == NULL)
+		chp->bhead = bp;
 	else {
 		struct buffer *nbp;
 
-		for (nbp = chp->bqhead; nbp->next != NULL; nbp = nbp->next)
+		for (nbp = chp->bhead; nbp->next != NULL; nbp = nbp->next)
 			;
 		nbp->next = bp;
 	}
@@ -113,7 +114,9 @@ buf_read(struct channel *chp)
 }
 
 /*
- *
+ * Write data from a specific channel to the specified file descriptor.
+ * We assume we can write at least READSIZE bytes, or else we'll fail.
+ * Otherwise we'd have to deal with partial buffers, and who wants that?
  */
 int
 buf_write(struct channel *chp, int wrfd)
@@ -125,8 +128,8 @@ buf_write(struct channel *chp, int wrfd)
 	 * Pull the buffer from the head of the queue and write it out
 	 * to the specified device.
 	 */
-	bp = chp->bqhead;
-	chp->bqhead = bp->next;
+	bp = chp->bhead;
+	chp->bhead = bp->next;
 	if ((n = write(wrfd, bp->data, bp->size)) != bp->size) {
 		syslog(LOG_INFO, "buffer write failure");
 		return(-1);

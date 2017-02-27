@@ -24,16 +24,20 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#define LINELEN		512
+#define READSIZE	512
 #define MAXPORTS	16
 
 #define FREE_Q		0
 #define IDLE_Q		1
 #define BUSY_Q		2
 
+/*
+ * Every I/O activity happens via a channel. We have one of these for each
+ * connection we accept, as well as the main (master) channel.
+ */
 struct	channel {
 	struct	channel	*next;
-	struct	buffer	*bqhead;
+	struct	buffer	*bhead;
 	int				channo;
 	int				qid;
 	int				fd;
@@ -41,15 +45,23 @@ struct	channel {
 	time_t			last_read;
 };
 
-struct	buffer	{
-	struct	buffer	*next;
-	int				size;
-	char			data[LINELEN];
-};
-
+/*
+ * We maintain three queues. A free queue (for new channels), an idle queue
+ * for channels which aren't busy and a busy queue for those which want access
+ * to the device.
+ */
 struct 	queue	{
 	struct 	channel	*head;
 	struct 	channel	*tail;
+};
+
+/*
+ * All reads and writes are from the buffer queue.
+ */
+struct	buffer	{
+	struct	buffer	*next;
+	int				size;
+	char			data[READSIZE];
 };
 
 extern int				accept_fd;
@@ -69,6 +81,7 @@ int			master_read();
 int			master_write();
 int			slave_read(struct channel *);
 int			slave_write(struct channel *);
+void		slave_promote();
 void		queue_init();
 void		enqueue(struct queue *, struct channel *);
 void		dequeue(struct queue *, struct channel *);

@@ -41,7 +41,8 @@ fd_set		mwrfdset, wfds;
 time_t		last_event;
 
 /*
- *
+ * Initialize the channel structures, including the array of file descriptors
+ * used by select(2).
  */
 void
 chan_init()
@@ -52,7 +53,8 @@ chan_init()
 }
 
 /*
- *
+ * Allocate a channel. If there's one on the free Q then take that. Otherwise,
+ * allocate one from malloc(3).
  */
 struct channel *
 chan_alloc()
@@ -67,11 +69,14 @@ chan_alloc()
 			exit(1);
 		}
 	}
+	/*
+	 * Initialize the channel. Note that all new channels default to the idle Q
+	 */
 	chp->fd = -1;
 	chp->channo = ++last_channo;
 	chp->qid = IDLE_Q;
 	enqueue(&idleq, chp);
-	chp->bqhead = NULL;
+	chp->bhead = NULL;
 	chp->totread = 0;
 	chp->last_read = 0;
 	chp->next = NULL;
@@ -80,7 +85,7 @@ chan_alloc()
 }
 
 /*
- * Process any read/write activity on the channel queue.
+ * Process any read/write activity on the given channel queue.
  */
 void
 chan_process(struct queue *qp)
@@ -132,10 +137,19 @@ chan_poll()
 	int n;
 	struct timeval tval, *tvp = NULL;
 
+	/*
+	 * Maintain a copy of the file descriptor sets, because it's too hard
+	 * to initialize the entire array each time.
+	 */
 	memcpy((char *)&rfds, (char *)&mrdfdset, sizeof(fd_set));
 	memcpy((char *)&wfds, (char *)&mwrfdset, sizeof(fd_set));
 	printf(">>>> TOP OF LOOP: Select on %d FDs...\n", maxfds);
 	if (contention()) {
+		/*
+		 * We have contention - at least two channels want the device.
+		 * We use a timeout so that we'll give up on the current head
+		 * of the busy queue if they don't do anything with it.
+		 */
 		tvp = &tval;
 		tvp->tv_sec = timeout;
 		tvp->tv_usec = 0;
@@ -148,36 +162,30 @@ chan_poll()
 		syslog(LOG_ERR, "select failure in chan_poll: %m");
 		exit(1);
 	}
+	/*
+	 * Get the time-of-day, because this will be used for timestamping
+	 * various events, and for computing actual timeouts. Check to see,
+	 * for example, if the head of the queue is idle. If so, promote
+	 * the next guy (assuming there is one).
+	 */
 	time(&last_event);
 	printf("Select returned %d.\n", n);
-	if (contention() && (last_event - busyq.head->last_read) >= timeout) {
-		/*
-		 * Guy at the head of the Q has had his chance. Time to bump him to
-		 * the idle Q and let the next guy have a chance - that is, assuming
-		 * we have contention for the device. Presumably the new guy at the
-		 * head of the queue has buffer data. If so, enable master writes.
-		 */
-		qmove(busyq.head, IDLE_Q);
-		if (busyq.head->bqhead != NULL)
-			chan_writeon(master->fd);
-	}
+	if (contention() && (last_event - busyq.head->last_read) >= timeout)
+		slave_promote();
 	if (n == 0)
 		return;
 	/*
-	 * Now check for a new connection.
+	 * Check for a new connection on the listen(2) socket. Then check for
+	 * read/write data (or events) on the various queues.
 	 */
 	if (FD_ISSET(accept_fd, &rfds))
 		tcp_newconn();
-	/*
-	 * We have some sort of r/w data or an event. Look through the
-	 * channels to see what's new.
-	 */
 	chan_process(&busyq);
 	chan_process(&idleq);
 }
 
 /*
- *
+ * Enable read polling on the specified file descriptor.
  */
 void
 chan_readon(int fd)
@@ -191,7 +199,7 @@ chan_readon(int fd)
 }
 
 /*
- *
+ * Disable read polling on the specified file descriptor.
  */
 void
 chan_readoff(int fd)
@@ -202,7 +210,7 @@ chan_readoff(int fd)
 }
 
 /*
- *
+ * Enable write polling on the specified file descriptor.
  */
 void
 chan_writeon(int fd)
@@ -216,7 +224,7 @@ chan_writeon(int fd)
 }
 
 /*
- *
+ * Disable write polling on the specified file descriptor.
  */
 void
 chan_writeoff(int fd)

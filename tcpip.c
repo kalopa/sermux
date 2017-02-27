@@ -40,30 +40,7 @@
 int		accept_fd;
 
 /*
- *
- */
-int
-tcp_newconn()
-{
-	socklen_t len;
-	struct channel *chp;
-	struct sockaddr_in sin;
-
-	printf("New connection received.\n");
-	len = sizeof(struct sockaddr_in);
-	chp = chan_alloc();
-	printf("Going to accept...\n");
-	if ((chp->fd = accept(accept_fd, (struct sockaddr *)&sin, &len)) < 0) {
-		syslog(LOG_INFO, "tcp_newconn failed: %m");
-		return(-1);
-	}
-	printf("Back from accept(). Addr:[%08x]\n", sin.sin_addr.s_addr);
-	chan_readon(chp->fd);
-	return(1);
-}
-
-/*
- *
+ * Set up our TCP listening port, ready to accept new, inbound slave connections.
  */
 void
 tcp_init(int port)
@@ -94,7 +71,31 @@ tcp_init(int port)
 }
 
 /*
- *
+ * Accept a new TCP connection. Just pick up the new connection and stuff the
+ * file descriptor into the new channel.
+ */
+int
+tcp_newconn()
+{
+	socklen_t len;
+	struct channel *chp;
+	struct sockaddr_in sin;
+
+	printf("New connection received.\n");
+	len = sizeof(struct sockaddr_in);
+	chp = chan_alloc();
+	printf("Going to accept...\n");
+	if ((chp->fd = accept(accept_fd, (struct sockaddr *)&sin, &len)) < 0) {
+		syslog(LOG_INFO, "tcp_newconn failed: %m");
+		return(-1);
+	}
+	printf("Back from accept(). Addr:[%08x]\n", sin.sin_addr.s_addr);
+	chan_readon(chp->fd);
+	return(1);
+}
+
+/*
+ * Our master channel is a TCP device. Attempt a connection to it.
  */
 void
 tcp_master(char *argstr)

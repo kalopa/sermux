@@ -63,7 +63,7 @@ struct	speed	{
 };
 
 /*
- *
+ * Our master channel is a serial port. Set it up...
  */
 void
 serial_master(char *argstr)
@@ -73,9 +73,12 @@ serial_master(char *argstr)
 	struct termios tios;
 
 	printf("Serial Init: [%s]\n", argstr);
+	/*
+	 * Baud rate and settings are configured as follows:
+	 * /dev/ttyUSB0:9600:8N1 (for example).
+	 */
 	if ((i = crack(argstr, params, 4)) < 1)
 		usage();
-
 	baud = (i > 1) ? atoi(params[1]) : 9600;
 	settings = (i > 2) ? params[2] : "8N1";
 	if (strlen(settings) != 3)
@@ -143,5 +146,8 @@ serial_master(char *argstr)
 		perror("serial_master: tcsetattr failed");
 		exit(1);
 	}
+	/*
+	 * Enable the channel for reading.
+	 */
 	chan_readon(master->fd);
 }

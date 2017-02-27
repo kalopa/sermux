@@ -35,16 +35,16 @@
 struct	channel		*master = NULL;
 
 /*
- *
+ * We have read data on the master socket. Deal with it.
  */
 int
 master_read()
 {
 	printf("MASTER Read!\n");
-	buf_read(master);
 	/*
 	 * Do we have any slaves? If not, dump what we've just read.
 	 */
+	buf_read(master);
 	if (busyq.head == NULL) {
 		buf_flush(master);
 		return(0);
@@ -52,7 +52,7 @@ master_read()
 	/*
 	 * If we've a lot of data backed up, stop reading (for now).
 	 */
-	if (master->totread > (LINELEN * 10))
+	if (master->totread > (READSIZE * 10))
 		chan_readoff(master->fd);
 	else
 		chan_readon(master->fd);
@@ -60,12 +60,12 @@ master_read()
 	/*
 	 * OK, queue up the slave for writing...
 	 */
-	chan_writeon(master->fd);
+	chan_writeon(busyq.head->fd);
 	return(1);
 }
 
 /*
- *
+ * We can write to the master socket.
  */
 int
 master_write()
@@ -80,9 +80,13 @@ master_write()
 		chan_writeoff(master->fd);
 		return(0);
 	}
+	/*
+	 * Write data from the current head of the busy Q to the
+	 * master socket. Disable writes if there's no more data.
+	 */
 	printf("Slave channel %d wants to write.\n", busyq.head->channo);
 	n = buf_write(busyq.head, master->fd);
-	if (busyq.head->bqhead == NULL)
+	if (busyq.head->bhead == NULL)
 		chan_writeoff(master->fd);
 	return(n);
 }
@@ -96,14 +100,17 @@ slave_read(struct channel *chp)
 	int n;
 
 	printf("SLAVE Read on channel %d\n", chp->channo);
-	n = buf_read(chp);
 	/*
 	 * If we've a lot of data backed up, stop reading (for now).
 	 */
-	if (chp->totread > (LINELEN * 10))
+	n = buf_read(chp);
+	if (chp->totread > (READSIZE * 10))
 		chan_readoff(chp->fd);
 	else
 		chan_readon(chp->fd);
+	/*
+	 * Move him to the busy Q and mark the time of this read.
+	 */
 	qmove(chp, BUSY_Q);
 	chp->last_read = last_event;
 	return(n);
@@ -118,7 +125,7 @@ int
 slave_write(struct channel *chp)
 {
 	printf("SLAVE Write on channel %d\n", chp->channo);
-	if (master->bqhead == NULL || chp != busyq.head) {
+	if (master->bhead == NULL || chp != busyq.head) {
 		/*
 		 * Oops! Nothing to write. Dunno how we got here, but
 		 * leave gracefully. Also, only allow writes to the head
@@ -128,7 +135,25 @@ slave_write(struct channel *chp)
 		return(0);
 	}
 	buf_write(master, chp->fd);
-	if (master->bqhead == NULL)
+	if (master->bhead == NULL)
 		chan_writeoff(chp->fd);
 	return(0);
+}
+
+/*
+ * Guy at the head of the Q has had his chance. Time to bump him to the idle
+ * Q and let the next guy have a chance. Presumably the new guy at the head
+ * of the queue has buffer data. If so, enable master writes. Also, to avoid
+ * spurious timeouts, reset his last_read time.
+ */
+void
+slave_promote()
+{
+	if (busyq.head->next == NULL)
+		return;
+	qmove(busyq.head, IDLE_Q);
+	if (busyq.head->bhead != NULL) {
+		chan_writeon(master->fd);
+		busyq.head->last_read = last_event;
+	}
 }

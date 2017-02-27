@@ -149,11 +149,11 @@ slave_write(struct channel *chp)
 void
 slave_promote()
 {
-	if (busyq.head->next == NULL)
-		return;
-	qmove(busyq.head, IDLE_Q);
-	if (busyq.head->bhead != NULL) {
-		chan_writeon(master->fd);
-		busyq.head->last_read = last_event;
+	if (contention()) {
+		qmove(busyq.head, IDLE_Q);
+		if (busyq.head->bhead != NULL) {
+			chan_writeon(master->fd);
+			busyq.head->last_read = last_event;
+		}
 	}
 }

@@ -32,7 +32,7 @@
 
 #include "sermux.h"
 
-struct	buffer	*bfreelist = NULL;
+struct	buffer	*freelist = NULL;
 
 /*
  *
@@ -42,8 +42,8 @@ buf_alloc()
 {
 	struct buffer *bp;
 
-	if ((bp = bfreelist) != NULL)
-		bfreelist = bp->next;
+	if ((bp = freelist) != NULL)
+		freelist = bp->next;
 	else {
 		if ((bp = (struct buffer *)malloc(sizeof(struct buffer))) == NULL) {
 			syslog(LOG_ERR, "buf_alloc() malloc: %m");
@@ -61,8 +61,8 @@ buf_alloc()
 void
 buf_free(struct buffer *bp)
 {
-	bp->next = bfreelist;
-	bfreelist = bp;
+	bp->next = freelist;
+	freelist = bp;
 }
 
 /*
@@ -139,73 +139,3 @@ buf_write(struct channel *chp, int wrfd)
 	buf_free(bp);
 	return(n);
 }
-#if 0
-/*
- * Do the buffer-switching activities.
- */
-void
-chan_switch()
-{
-	struct buffer *chp, *nchp;
-
-	printf("Checking channels for read/write data...\n");
-	for (chp = chead; chp != NULL; chp = nchp) {
-		printf("Switch chan%d...\n", chp->channo);
-		nchp = chp->next;
-		if (chp->rdlen > 0) {
-			printf("Channel %d has read data.\n", chp->channo);
-			if (chp->switch_proc != NULL)
-				chp->switch_proc(chp);
-		}
-		/*
-		 * Check if the device is closed/borked.
-		 */
-		if (chp->fd < 0) {
-			printf("Borking...\n");
-			/*
-			 * Yes - let it go.
-			 */
-			if (chp->prev == NULL)
-				chead = nchp;
-			else
-				chp->prev->next = nchp;
-			if (nchp == NULL)
-				ctail = chp->prev;
-			else
-				nchp->prev = chp->prev;
-			chan_free(chp);
-		}
-	}
-	for (chp = chead; chp != NULL; chp = chp->next) {
-		if (chp->wrlen > 0) {
-			printf("Channel %d has write data.\n", chp->channo);
-			chan_enable(chp->fd, CHANFD_RD|CHANFD_WR);
-		} else
-			chan_enable(chp->fd, CHANFD_RD);
-	}
-}
-
-/*
- * The default buffer-copy switch. This doesn't do anything useful.
- */
-int
-chan_copyio(struct channel *chp)
-{
-	int len;
-
-	if ((len = BUFFER_SIZE - chp->wrlen) > chp->rdlen)
-		len = chp->rdlen;
-	printf("chan_copyio on channel %d, copying %d bytes.\n", chp->channo, len);
-	memcpy(chp->wrbuffer + chp->wrlen, chp->rdbuffer, len);
-	chp->wrlen += len;
-	chp->rdlen -= len;
-	if (chp->rdlen > 0) {
-		/*
-		 * Argh! Need to collapse the buffer. Please don't
-		 * do this...
-		 */
-		memmove(chp->rdbuffer, chp->rdbuffer + len, chp->rdlen);
-	}
-	return(len);
-}
-#endif

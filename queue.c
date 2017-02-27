@@ -27,36 +27,95 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/select.h>
+#include <syslog.h>
+#include <string.h>
 
 #include "sermux.h"
 
-#define LINESIZE	16
+struct queue		freeq;
+struct queue		idleq;
+struct queue		busyq;
+
+struct queue		*queues[3];
 
 /*
- *
+ * Initialize the queueing subsystem.
  */
 void
-hexdump(char *data, int addr, int len)
+queue_init()
 {
-	int i, n;
+	freeq.head = freeq.tail = NULL;
+	idleq.head = idleq.tail = NULL;
+	busyq.head = busyq.tail = NULL;
+	queues[FREE_Q] = &freeq;
+	queues[IDLE_Q] = &idleq;
+	queues[BUSY_Q] = &busyq;
+}
 
-	while (len) {
-		n = (len > LINESIZE) ? LINESIZE : len;
-		printf("%04x  ", addr);
-		addr += n;
-		len -= n;
-		for (i = 0; i < LINESIZE; i++) {
-			if (i >= n)
-				printf("   ");
-			else
-				printf(" %02x", data[i] & 0xff);
+/*
+ * Enqueue a channel on the specified queue.
+ */
+void
+enqueue(struct queue *qp, struct channel *chp)
+{
+	chp->next = NULL;
+	if (qp->head == NULL)
+		qp->head = chp;
+	else
+		qp->tail->next = chp;
+	qp->tail = chp;
+}
+
+/*
+ * Remove a channel from the specified queue.
+ */
+void
+dequeue(struct queue *qp, struct channel *chp)
+{
+	if (qp->head == chp) {
+		/*
+		 * On the head of the queue. Do this the easy way.
+		 */
+		if ((qp->head = chp->next) == NULL) {
+			qp->tail = NULL;
+			return;
 		}
-		printf("   *");
-		while (n--) {
-			if ((i = *data++ & 0x7f) < ' ' || i == 0x7f)
-				i = '.';
-			putchar(i);
+	} else {
+		struct channel *nchp;
+
+		for (nchp = qp->head; nchp->next != NULL; nchp = nchp->next) {
+			if (nchp->next == chp) {
+				nchp->next = chp->next;
+				break;
+			}
 		}
-		printf("*\n");
 	}
+	/*
+	 * Now make sure the tail pointer is valid.
+	 */
+	for (qp->tail = qp->head; qp->tail->next != NULL; qp->tail = qp->tail->next)
+		;
+}
+
+/*
+ * Move the channel from its current queue to another queue.
+ */
+void
+qmove(struct channel *chp, int newqid)
+{
+	if (chp->qid == newqid)
+		return;
+	dequeue(queues[chp->qid], chp);
+	chp->qid = newqid;
+	enqueue(queues[newqid], chp);
+}
+
+/*
+ * Return TRUE if more than one channel wants access.
+ */
+int
+contention()
+{
+	return(busyq.head != NULL && busyq.head->next != NULL);
 }

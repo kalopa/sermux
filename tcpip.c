@@ -37,28 +37,28 @@
 
 #include "sermux.h"
 
+int		accept_fd;
+
 /*
  *
  */
 int
-tcp_newconn(struct channel *chp)
+tcp_newconn()
 {
 	socklen_t len;
-	struct channel *nchp;
+	struct channel *chp;
 	struct sockaddr_in sin;
 
 	printf("New connection received.\n");
 	len = sizeof(struct sockaddr_in);
-	nchp = chan_alloc();
+	chp = chan_alloc();
 	printf("Going to accept...\n");
-	if ((nchp->fd = accept(chp->fd, (struct sockaddr *)&sin, &len)) < 0) {
+	if ((chp->fd = accept(accept_fd, (struct sockaddr *)&sin, &len)) < 0) {
 		syslog(LOG_INFO, "tcp_newconn failed: %m");
 		return(-1);
 	}
 	printf("Back from accept(). Addr:[%08x]\n", sin.sin_addr.s_addr);
-	nchp->read_proc = slave_read;
-	nchp->write_proc = slave_write;
-	chan_readon(nchp);
+	chan_readon(chp->fd);
 	return(1);
 }
 
@@ -69,15 +69,14 @@ void
 tcp_init(int port)
 {
 	int yes = 1;
-	struct channel *chp = chan_alloc();
 	struct sockaddr_in sin;
 
 	printf("TCP INIT: Port%d\n", port);
-	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if ((accept_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("tcp_init: socket failed");
 		exit(1);
 	}
-	if (setsockopt(chp->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
+	if (setsockopt(accept_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0) {
 		perror("tcp_init: setsockopt failed");
 		exit(1);
 	}
@@ -85,14 +84,13 @@ tcp_init(int port)
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = INADDR_ANY;
 	sin.sin_port = htons(port);
-	if (bind(chp->fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+	if (bind(accept_fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		perror("tcp_init: bind");
 		exit(1);
 	}
-	listen(chp->fd, 64);
+	listen(accept_fd, 64);
 	printf("LISTEN Socket UP!\n");
-	chp->read_proc = tcp_newconn;
-	chan_readon(chp);
+	chan_readon(accept_fd);
 }
 
 /*
@@ -103,7 +101,6 @@ tcp_master(char *argstr)
 {
 	int i, port;
 	char *params[4], *host;
-	struct channel *chp = chan_alloc();
 	struct sockaddr_in sin;
 	in_addr_t addr;
 
@@ -124,7 +121,8 @@ tcp_master(char *argstr)
 		memcpy((char *)&addr, hp->h_addr, hp->h_length);
 	}
 	printf("%08x\n", addr);
-	if ((chp->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	master = chan_alloc();
+	if ((master->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("tcp_master: socket");
 		exit(1);
 	}
@@ -132,9 +130,9 @@ tcp_master(char *argstr)
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = addr;
 	sin.sin_port = htons(port);
-	if (connect(chp->fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+	if (connect(master->fd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
 		perror("tcp_master: connect failed");
 		exit(1);
 	}
-	proc_set_master(chp);
+	chan_readon(master->fd);
 }

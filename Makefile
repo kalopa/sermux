@@ -26,7 +26,7 @@
 #
 CFLAGS=	-Wall -O
 
-SRCS=	main.c process.c serial.c tcpip.c channel.c buffer.c utils.c
+SRCS=	main.c process.c serial.c tcpip.c queue.c channel.c buffer.c
 OBJS=	$(SRCS:.c=.o)
 
 all:	sermux

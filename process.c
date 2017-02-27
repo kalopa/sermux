@@ -37,171 +37,58 @@ struct	channel		*master = NULL;
 /*
  *
  */
-void
-proc_set_master(struct channel *chp)
-{
-	master = chp;
-	printf("MASTER is Channel%d\n", chp->channo);
-	chp->read_proc = master_read;
-	chp->write_proc = master_write;
-	chan_readon(chp);
-}
-
-/*
- *
- */
-void
-proc_set_slave(struct channel *chp)
-{
-	printf("Setting channel %d as new active slave.\n", chp->channo);
-	{
-		struct channel *xp;
-
-		for (xp = master; xp != NULL; xp = xp->mqnext)
-			printf("CH%d...\n", xp->channo);
-	}
-	if (master->mqnext == NULL) {
-		/*
-		 * Master is free and we have a new slave.
-		 */
-		master->mqnext = chp;
-	} else {
-		struct channel *nchp;
-
-		/*
-		 * Oops! We already have a running slave - go to the
-		 * back of the queue. You'll have to wait for this
-		 * current guy to go idle...
-		 */
-		for (nchp = master; nchp->mqnext != NULL && nchp->mqnext != chp; nchp = nchp->mqnext)
-			;
-		nchp->mqnext = chp;
-	}
-	chan_readon(master);
-	chan_writeon(master);
-}
-
-/*
- *
- */
-void
-proc_release(struct channel *chp)
-{
-	struct channel *nchp;
-
-	if (master == NULL || master->mqnext == NULL)
-		return;
-	if (master == chp) {
-		syslog(LOG_ERR, "attempt to release master channel");
-		exit(1);
-	}
-	if (master->mqnext == chp) {
-		/*
-		 * This current slave channel is dead. Oh well...
-		 */
-		master->mqnext = chp->mqnext;
-	} else {
-		/*
-		 * Check if the slave is in our master queue. If so,
-		 * remove it.
-		 */
-		for (nchp = master; nchp->mqnext != NULL; nchp = nchp->mqnext) {
-			if (nchp->next == chp) {
-				nchp->next = chp->next;
-				break;
-			}
-		}
-	}
-	chp->mqnext = NULL;
-}
-
-/*
- * Do we need a timeout in the select-loop? Yes, if we're doing work
- * for a slave.
- */
 int
-proc_busy()
-{
-	return((master != NULL && master->mqnext != NULL && master->mqnext->mqnext != NULL) ? 1 : 0);
-}
-
-/*
- * We timed-out waiting for data. Time to kick the current slave off
- * the head of the queue.
- */
-void
-proc_timeout()
-{
-	struct channel *chp;
-
-	printf("TIMEOUT!\n");
-	if (proc_busy()) {
-		chp = master->mqnext;
-		master->mqnext = chp->mqnext;
-		chp->mqnext = NULL;
-		chan_readon(master);
-		chan_writeon(master);
-	}
-}
-
-/*
- *
- */
-int
-master_read(struct channel *chp)
+master_read()
 {
 	printf("MASTER Read!\n");
-	buf_read(chp);
+	buf_read(master);
 	/*
 	 * Do we have any slaves? If not, dump what we've just read.
 	 */
-	if ((chp = master->mqnext) == NULL) {
+	if (busyq.head == NULL) {
 		buf_flush(master);
-		chan_readoff(master);
 		return(0);
 	}
 	/*
 	 * If we've a lot of data backed up, stop reading (for now).
 	 */
-	if (chp->totread > (LINELEN * 10))
-		chan_readoff(chp);
+	if (master->totread > (LINELEN * 10))
+		chan_readoff(master->fd);
 	else
-		chan_readon(chp);
-	printf("Master has %d bytes buffered.\n", chp->totread);
+		chan_readon(master->fd);
+	printf("Master has %d bytes buffered.\n", master->totread);
 	/*
 	 * OK, queue up the slave for writing...
 	 */
-	chan_writeon(chp);
-	return(0);
+	chan_writeon(master->fd);
+	return(1);
 }
 
 /*
  *
  */
 int
-master_write(struct channel *chp)
+master_write()
 {
 	int n;
 
 	printf("MASTER Write!\n");
-	if ((chp = master->mqnext) == NULL || chp->bqhead == NULL) {
+	if (busyq.head == NULL) {
 		/*
 		 * Oops! No slaves. Nothing to see, here...
 		 */
-		chan_writeoff(master);
+		chan_writeoff(master->fd);
 		return(0);
 	}
-	printf("Slave channel %d wants to write.\n", chp->channo);
-	n = buf_write(chp, master->fd);
-	if (chp->bqhead == NULL)
-		chan_writeoff(master);
+	printf("Slave channel %d wants to write.\n", busyq.head->channo);
+	n = buf_write(busyq.head, master->fd);
+	if (busyq.head->bqhead == NULL)
+		chan_writeoff(master->fd);
 	return(n);
 }
 
 /*
- * Read data from a slave. If the master is currently processing an
- * account then we just enqueue this one behind the earlier request(s). If
- * it's the head of the queue, then set things up for a master-write.
+ * Read data from a slave. Make sure this guy is bumped up to the busy Q.
  */
 int
 slave_read(struct channel *chp)
@@ -214,17 +101,11 @@ slave_read(struct channel *chp)
 	 * If we've a lot of data backed up, stop reading (for now).
 	 */
 	if (chp->totread > (LINELEN * 10))
-		chan_readoff(chp);
+		chan_readoff(chp->fd);
 	else
-		chan_readon(chp);
-	/*
-	 * Error-out if no master (which can't happen).
-	 */
-	if (master == NULL) {
-		syslog(LOG_ERR, "panic: no master!");
-		exit(1);
-	}
-	proc_set_slave(chp);
+		chan_readon(chp->fd);
+	qmove(chp, BUSY_Q);
+	chp->last_read = last_event;
 	return(n);
 }
 
@@ -237,16 +118,17 @@ int
 slave_write(struct channel *chp)
 {
 	printf("SLAVE Write on channel %d\n", chp->channo);
-	if (master == NULL || master->mqnext == NULL || master->mqnext != chp || master->bqhead == NULL) {
+	if (master->bqhead == NULL || chp != busyq.head) {
 		/*
 		 * Oops! Nothing to write. Dunno how we got here, but
-		 * leave gracefully.
+		 * leave gracefully. Also, only allow writes to the head
+		 * of the busy Q.
 		 */
-		chan_writeoff(chp);
+		chan_writeoff(chp->fd);
 		return(0);
 	}
 	buf_write(master, chp->fd);
 	if (master->bqhead == NULL)
-		chan_writeoff(chp);
+		chan_writeoff(chp->fd);
 	return(0);
 }

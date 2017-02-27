@@ -27,45 +27,61 @@
 #define LINELEN		512
 #define MAXPORTS	16
 
+#define FREE_Q		0
+#define IDLE_Q		1
+#define BUSY_Q		2
+
 struct	channel {
 	struct	channel	*next;
-	struct	channel	*mqnext;
 	struct	buffer	*bqhead;
-	int		channo;
-	int		fd;
-	int		totread;
-	int		(*read_proc)(struct channel *);
-	int		(*write_proc)(struct channel *);
+	int				channo;
+	int				qid;
+	int				fd;
+	int				totread;
+	time_t			last_read;
 };
 
 struct	buffer	{
 	struct	buffer	*next;
-	int		size;
-	char		data[LINELEN];
+	int				size;
+	char			data[LINELEN];
 };
 
-extern	int	debug;
-extern	int	timeout;
+struct 	queue	{
+	struct 	channel	*head;
+	struct 	channel	*tail;
+};
 
-void		proc_set_master(struct channel *);
-void		proc_set_slave(struct channel *);
-int			proc_busy();
-void		proc_timeout();
-void		proc_release(struct channel *);
-int			master_read(struct channel *);
-int			master_write(struct channel *);
+extern int				accept_fd;
+extern int				debug;
+extern int				timeout;
+extern struct channel	*master;
+extern struct queue		freeq;
+extern struct queue		idleq;
+extern struct queue		busyq;
+extern time_t			last_event;
+
+void		tcp_init(int);
+void		tcp_master(char *);
+int			tcp_newconn();
+void		serial_master(char *);
+int			master_read();
+int			master_write();
 int			slave_read(struct channel *);
 int			slave_write(struct channel *);
-void		tcp_init(int);
-void		serial_master(char *);
-void		tcp_master(char *);
+void		queue_init();
+void		enqueue(struct queue *, struct channel *);
+void		dequeue(struct queue *, struct channel *);
+void		qmove(struct channel *, int);
+int			contention();
+void		chan_init();
+void		chan_process(struct queue *);
 void		chan_poll();
 struct	channel	*chan_alloc();
-void		chan_free(struct channel *);
-void		chan_readon(struct channel *);
-void		chan_readoff(struct channel *);
-void		chan_writeon(struct channel *);
-void		chan_writeoff(struct channel *);
+void		chan_readon(int);
+void		chan_readoff(int);
+void		chan_writeon(int);
+void		chan_writeoff(int);
 struct	buffer	*buf_alloc();
 void		buf_free(struct buffer *);
 void		buf_flush(struct channel *);

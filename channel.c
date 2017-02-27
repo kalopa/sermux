@@ -27,18 +27,29 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/select.h>
 #include <syslog.h>
 #include <string.h>
 
 #include "sermux.h"
 
-struct	channel	*cfreelist;
-struct	channel	*active;
+int			maxfds;
+int 		last_channo;
+fd_set		mrdfdset, rfds;
+fd_set		mwrfdset, wfds;
+time_t		last_event;
 
-int		maxfds;
-fd_set		mrdfdset;
-fd_set		mwrfdset;
+/*
+ *
+ */
+void
+chan_init()
+{
+	maxfds = last_channo = 0;
+	FD_ZERO(&mrdfdset);
+	FD_ZERO(&mwrfdset);
+}
 
 /*
  *
@@ -46,18 +57,10 @@ fd_set		mwrfdset;
 struct channel *
 chan_alloc()
 {
-	static int initted = 0, last_channo;
 	struct channel *chp;
 
-	if (!initted) {
-		cfreelist = active = NULL;
-		maxfds = last_channo = 0;
-		FD_ZERO(&mrdfdset);
-		FD_ZERO(&mwrfdset);
-		initted = 1;
-	}
-	if ((chp = cfreelist) != NULL)
-		cfreelist = chp->next;
+	if ((chp = freeq.head) != NULL)
+		dequeue(&freeq, chp);
 	else {
 		if ((chp = (struct channel *)malloc(sizeof(struct channel))) == NULL) {
 			syslog(LOG_ERR, "chan_alloc() malloc: %m");
@@ -66,177 +69,159 @@ chan_alloc()
 	}
 	chp->fd = -1;
 	chp->channo = ++last_channo;
-	chp->next = chp->mqnext = NULL;
+	chp->qid = IDLE_Q;
+	enqueue(&idleq, chp);
 	chp->bqhead = NULL;
 	chp->totread = 0;
-	chp->read_proc = NULL;
-	chp->write_proc = NULL;
-	if (active == NULL)
-		active = chp;
-	else {
-		struct channel *nchp;
-
-		for (nchp = active; nchp->next != NULL; nchp = nchp->next)
-			;
-		nchp->next = chp;
-	}
+	chp->last_read = 0;
+	chp->next = NULL;
 	printf("New channel %d.\n", chp->channo);
 	return(chp);
 }
 
 /*
- *
+ * Process any read/write activity on the channel queue.
  */
 void
-chan_free(struct channel *chp)
+chan_process(struct queue *qp)
 {
-	if (chp->fd >= 0)
-		close(chp->fd);
-	chp->fd = -1;
-	if (active == chp)
-		active = chp->next;
-	else {
-		struct channel *nchp;
+	int fail;
+	struct channel *chp, *nchp;
 
-		for (nchp = active; nchp->next != NULL; nchp = nchp->next) {
-			if (nchp->next == chp) {
-				nchp->next = chp->next;
-				break;
-			}
+	for (chp = qp->head; chp != NULL; chp = nchp) {
+		nchp = chp->next;
+		if (chp->fd < 0)
+			continue;
+		if (chp == master) {
+			/*
+			 * Check for master read/write.
+			 */
+			if (FD_ISSET(master->fd, &rfds))
+				master_read();
+			if (FD_ISSET(master->fd, &wfds))
+				master_write();
+			continue;
+		}
+		fail = 0;
+		if (FD_ISSET(chp->fd, &rfds) && slave_read(chp) < 0)
+			fail = 1;
+		if (!fail && FD_ISSET(chp->fd, &wfds) && slave_write(chp) < 0)
+			fail = 1;
+		if (fail) {
+			/*
+			 * Channel has failed. Clean this up and move it to the
+			 * free Q.
+			 */
+			printf("Channel%d failure: %d\n", chp->channo, fail);
+			chan_readoff(chp->fd);
+			chan_writeoff(chp->fd);
+			close(chp->fd);
+			chp->fd = -1;
+			qmove(chp, FREE_Q);
 		}
 	}
-	chp->next = cfreelist;
-	cfreelist = chp;
 }
 
 /*
- *
+ * Poll (select(2)) the list of channels (and the I/O device) for read/write
+ * activity and handle accordingly.
  */
 void
 chan_poll()
 {
-	int n, bad;
-	struct channel *chp, *nchp;
-	struct timeval tval, *tvp;
-	fd_set rfds, wfds;
+	int n;
+	struct timeval tval, *tvp = NULL;
 
 	memcpy((char *)&rfds, (char *)&mrdfdset, sizeof(fd_set));
 	memcpy((char *)&wfds, (char *)&mwrfdset, sizeof(fd_set));
-	printf("Selecting on %d FDs...\n", maxfds);
-	if (proc_busy()) {
+	printf(">>>> TOP OF LOOP: Select on %d FDs...\n", maxfds);
+	if (contention()) {
 		tvp = &tval;
 		tvp->tv_sec = timeout;
 		tvp->tv_usec = 0;
-		printf("Timeout of %d seconds\n", timeout);
-	} else
+		printf("Timeout=%ds\n", timeout);
+	} else {
 		tvp = NULL;
+		printf("No timeout\n");
+	}
 	if ((n = select(maxfds, &rfds, &wfds, NULL, tvp)) < 0) {
 		syslog(LOG_ERR, "select failure in chan_poll: %m");
 		exit(1);
 	}
+	time(&last_event);
 	printf("Select returned %d.\n", n);
-	if (n == 0) {
-		proc_timeout();
-		return;
+	if (contention() && (last_event - busyq.head->last_read) >= timeout) {
+		/*
+		 * Guy at the head of the Q has had his chance. Time to bump him to
+		 * the idle Q and let the next guy have a chance - that is, assuming
+		 * we have contention for the device. Presumably the new guy at the
+		 * head of the queue has buffer data. If so, enable master writes.
+		 */
+		qmove(busyq.head, IDLE_Q);
+		if (busyq.head->bqhead != NULL)
+			chan_writeon(master->fd);
 	}
+	if (n == 0)
+		return;
+	/*
+	 * Now check for a new connection.
+	 */
+	if (FD_ISSET(accept_fd, &rfds))
+		tcp_newconn();
 	/*
 	 * We have some sort of r/w data or an event. Look through the
 	 * channels to see what's new.
 	 */
-	for (chp = active; chp != NULL; chp = chp->next) {
-		if (chp->fd >= 0) {
-			bad = 0;
-			if (FD_ISSET(chp->fd, &rfds))
-				if (chp->read_proc == NULL || chp->read_proc(chp) < 0)
-					bad = 1;
-			if (!bad && FD_ISSET(chp->fd, &wfds))
-				if (chp->write_proc == NULL || chp->write_proc(chp) < 0)
-					bad = 1;
-			if (bad) {
-				/*
-				 * Channel has failed. Clean this up during
-				 * the switch phase, but mark it closed.
-				 */
-				printf("Bad:%d\n", bad);
-				chan_readoff(chp);
-				chan_writeoff(chp);
-				close(chp->fd);
-				chp->fd = -1;
-			}
-		}
-	}
-	/*
-	 * Hunt for inactive channels and remove them.
-	 * Start with the inactive channels at the head of the queue.
-	 */
-	while (active->fd < 0) {
-		active = chp->next;
-		proc_release(chp);
-		chan_free(chp);
-	}
-	if (active == NULL)
+	chan_process(&busyq);
+	chan_process(&idleq);
+}
+
+/*
+ *
+ */
+void
+chan_readon(int fd)
+{
+	printf("Read ON on fd%d\n", fd);
+	if (fd < 0)
 		return;
-	/*
-	 * Now look for ones in the middle of the queue.
-	 */
-	for (chp = active; chp->next != NULL; chp = nchp) {
-		nchp = chp->next;
-		if (nchp->fd < 0) {
-			chp->next = nchp->next;
-			chp = nchp;
-			nchp = chp->next;
-			proc_release(chp);
-			chan_free(chp);
-		}
-	}
+	if (maxfds <= fd)
+		maxfds = fd + 1;
+	FD_SET(fd, &mrdfdset);
 }
 
 /*
  *
  */
 void
-chan_readon(struct channel *chp)
+chan_readoff(int fd)
 {
-	printf("Read ON on channel%d\n", chp->channo);
-	if (chp == NULL || chp->fd < 0)
+	printf("Read OFF on fd%d\n", fd);
+	if (fd >= 0)
+		FD_CLR(fd, &mrdfdset);
+}
+
+/*
+ *
+ */
+void
+chan_writeon(int fd)
+{
+	printf("Write ON on fd%d\n", fd);
+	if (fd < 0)
 		return;
-	if (maxfds <= chp->fd)
-		maxfds = chp->fd + 1;
-	FD_SET(chp->fd, &mrdfdset);
+	if (maxfds <= fd)
+		maxfds = fd + 1;
+	FD_SET(fd, &mwrfdset);
 }
 
 /*
  *
  */
 void
-chan_readoff(struct channel *chp)
+chan_writeoff(int fd)
 {
-	printf("Read OFF on channel%d\n", chp->channo);
-	if (chp != NULL && chp->fd >= 0)
-		FD_CLR(chp->fd, &mrdfdset);
-}
-
-/*
- *
- */
-void
-chan_writeon(struct channel *chp)
-{
-	printf("Write ON on channel%d\n", chp->channo);
-	if (chp == NULL || chp->fd < 0)
-		return;
-	if (maxfds <= chp->fd)
-		maxfds = chp->fd + 1;
-	FD_SET(chp->fd, &mwrfdset);
-}
-
-/*
- *
- */
-void
-chan_writeoff(struct channel *chp)
-{
-	printf("Write OFF on channel%d\n", chp->channo);
-	if (chp != NULL && chp->fd >= 0)
-		FD_CLR(chp->fd, &mwrfdset);
+	printf("Write OFF on fd%d\n", fd);
+	if (fd >= 0)
+		FD_CLR(fd, &mwrfdset);
 }

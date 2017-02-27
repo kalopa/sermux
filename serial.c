@@ -70,7 +70,6 @@ serial_master(char *argstr)
 {
 	int i, baud;
 	char *settings, *params[4];
-	struct channel *chp = chan_alloc();
 	struct termios tios;
 
 	printf("Serial Init: [%s]\n", argstr);
@@ -81,7 +80,8 @@ serial_master(char *argstr)
 	settings = (i > 2) ? params[2] : "8N1";
 	if (strlen(settings) != 3)
 		usage();
-	if ((chp->fd = open(params[0], O_RDWR|O_NOCTTY|O_NDELAY)) < 0) {
+	master = chan_alloc();
+	if ((master->fd = open(params[0], O_RDWR|O_NOCTTY|O_NDELAY)) < 0) {
 		fprintf(stderr, "?Cannot open serial device: ");
 		perror(params[0]);
 		exit(1);
@@ -89,8 +89,8 @@ serial_master(char *argstr)
 	/*
 	 * Get and set the tty parameters.
 	 */
-	printf(">SERIAL FD%d:, Spd: %d, Params: [%s]\n", chp->fd, baud, settings);
-	if (tcgetattr(chp->fd, &tios) < 0) {
+	printf(">SERIAL FD%d:, Spd: %d, Params: [%s]\n", master->fd, baud, settings);
+	if (tcgetattr(master->fd, &tios) < 0) {
 		perror("serial_master: tcgetattr failed");
 		exit(1);
 	}
@@ -139,9 +139,9 @@ serial_master(char *argstr)
 	tios.c_lflag = tios.c_iflag = tios.c_oflag = 0;
 	tios.c_cc[VMIN] = 0;
 	tios.c_cc[VTIME] = 10;
-	if (tcsetattr(chp->fd, TCSANOW, &tios) < 0) {
+	if (tcsetattr(master->fd, TCSANOW, &tios) < 0) {
 		perror("serial_master: tcsetattr failed");
 		exit(1);
 	}
-	proc_set_master(chp);
+	chan_readon(master->fd);
 }

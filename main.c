@@ -34,8 +34,10 @@
 
 #include "sermux.h"
 
-int	debug;
-int	timeout;
+#define LINESIZE	16
+
+int		debug;
+int		timeout;
 
 void	usage();
 
@@ -78,6 +80,8 @@ main(int argc, char *argv[])
 	/*
 	 * Process the command-line.
 	 */
+	queue_init();
+	chan_init();
 	device = strdup(argv[optind]);
 	if (*device == '/')
 		serial_master(device);
@@ -156,6 +160,35 @@ crack(char *strp, char *argv[], int maxargs)
 			break;
 	}
 	return(n + 1);
+}
+
+/*
+ *
+ */
+void
+hexdump(char *data, int addr, int len)
+{
+	int i, n;
+
+	while (len) {
+		n = (len > LINESIZE) ? LINESIZE : len;
+		printf("%04x  ", addr);
+		addr += n;
+		len -= n;
+		for (i = 0; i < LINESIZE; i++) {
+			if (i >= n)
+				printf("   ");
+			else
+				printf(" %02x", data[i] & 0xff);
+		}
+		printf("   *");
+		while (n--) {
+			if ((i = *data++ & 0x7f) < ' ' || i == 0x7f)
+				i = '.';
+			putchar(i);
+		}
+		printf("*\n");
+	}
 }
 
 /*

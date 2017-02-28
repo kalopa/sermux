@@ -158,6 +158,8 @@ chan_poll()
 		tvp = NULL;
 		printf("No timeout\n");
 	}
+	if (busyq.head != NULL)
+		printf("Head of queue is chan%d (contention=%d)\n", busyq.head->channo, contention());
 	if ((n = select(maxfds, &rfds, &wfds, NULL, tvp)) < 0) {
 		syslog(LOG_ERR, "select failure in chan_poll: %m");
 		exit(1);
@@ -170,8 +172,10 @@ chan_poll()
 	 */
 	time(&last_event);
 	printf("Select returned %d.\n", n);
-	if (contention() && (last_event - busyq.head->last_read) >= timeout)
+	if (contention() && (last_event - busyq.head->last_read) >= timeout) {
+		qmove(busyq.head, IDLE_Q);
 		slave_promote();
+	}
 	if (n == 0)
 		return;
 	/*

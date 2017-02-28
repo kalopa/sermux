@@ -113,6 +113,7 @@ slave_read(struct channel *chp)
 	 */
 	qmove(chp, BUSY_Q);
 	chp->last_read = last_event;
+	slave_promote();
 	return(n);
 }
 
@@ -149,11 +150,9 @@ slave_write(struct channel *chp)
 void
 slave_promote()
 {
-	if (contention()) {
-		qmove(busyq.head, IDLE_Q);
-		if (busyq.head->bhead != NULL) {
-			chan_writeon(master->fd);
-			busyq.head->last_read = last_event;
-		}
+	if (busyq.head && busyq.head->bhead != NULL) {
+		printf("Promoting chan%d to head of queue...\n", busyq.head->channo);
+		chan_writeon(master->fd);
+		busyq.head->last_read = last_event;
 	}
 }

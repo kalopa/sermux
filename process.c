@@ -40,7 +40,6 @@ struct	channel		*master = NULL;
 int
 master_read()
 {
-	printf("MASTER Read!\n");
 	/*
 	 * Do we have any slaves? If not, dump what we've just read.
 	 */
@@ -56,7 +55,6 @@ master_read()
 		chan_readoff(master->fd);
 	else
 		chan_readon(master->fd);
-	printf("Master has %d bytes buffered.\n", master->totread);
 	/*
 	 * OK, queue up the slave for writing...
 	 */
@@ -72,7 +70,6 @@ master_write()
 {
 	int n;
 
-	printf("MASTER Write!\n");
 	if (busyq.head == NULL) {
 		/*
 		 * Oops! No slaves. Nothing to see, here...
@@ -84,7 +81,6 @@ master_write()
 	 * Write data from the current head of the busy Q to the
 	 * master socket. Disable writes if there's no more data.
 	 */
-	printf("Slave channel %d wants to write.\n", busyq.head->channo);
 	n = buf_write(busyq.head, master->fd);
 	if (busyq.head->bhead == NULL)
 		chan_writeoff(master->fd);
@@ -99,7 +95,6 @@ slave_read(struct channel *chp)
 {
 	int n;
 
-	printf("SLAVE Read on channel %d\n", chp->channo);
 	/*
 	 * If we've a lot of data backed up, stop reading (for now).
 	 */
@@ -125,7 +120,6 @@ slave_read(struct channel *chp)
 int
 slave_write(struct channel *chp)
 {
-	printf("SLAVE Write on channel %d\n", chp->channo);
 	if (master->bhead == NULL || chp != busyq.head) {
 		/*
 		 * Oops! Nothing to write. Dunno how we got here, but
@@ -151,7 +145,6 @@ void
 slave_promote()
 {
 	if (busyq.head && busyq.head->bhead != NULL) {
-		printf("Promoting chan%d to head of queue...\n", busyq.head->channo);
 		chan_writeon(master->fd);
 		busyq.head->last_read = last_event;
 	}

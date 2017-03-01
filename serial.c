@@ -72,7 +72,6 @@ serial_master(char *argstr)
 	char *settings, *params[4];
 	struct termios tios;
 
-	printf("Serial Init: [%s]\n", argstr);
 	/*
 	 * Baud rate and settings are configured as follows:
 	 * /dev/ttyUSB0:9600:8N1 (for example).
@@ -92,7 +91,6 @@ serial_master(char *argstr)
 	/*
 	 * Get and set the tty parameters.
 	 */
-	printf(">SERIAL FD%d:, Spd: %d, Params: [%s]\n", master->fd, baud, settings);
 	if (tcgetattr(master->fd, &tios) < 0) {
 		perror("serial_master: tcgetattr failed");
 		exit(1);

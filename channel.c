@@ -80,7 +80,6 @@ chan_alloc()
 	chp->totread = 0;
 	chp->last_read = 0;
 	chp->next = NULL;
-	printf("New channel %d.\n", chp->channo);
 	return(chp);
 }
 
@@ -117,7 +116,6 @@ chan_process(struct queue *qp)
 			 * Channel has failed. Clean this up and move it to the
 			 * free Q.
 			 */
-			printf("Channel%d failure: %d\n", chp->channo, fail);
 			chan_readoff(chp->fd);
 			chan_writeoff(chp->fd);
 			close(chp->fd);
@@ -143,7 +141,6 @@ chan_poll()
 	 */
 	memcpy((char *)&rfds, (char *)&mrdfdset, sizeof(fd_set));
 	memcpy((char *)&wfds, (char *)&mwrfdset, sizeof(fd_set));
-	printf(">>>> TOP OF LOOP: Select on %d FDs...\n", maxfds);
 	if (contention()) {
 		/*
 		 * We have contention - at least two channels want the device.
@@ -153,13 +150,7 @@ chan_poll()
 		tvp = &tval;
 		tvp->tv_sec = timeout;
 		tvp->tv_usec = 0;
-		printf("Timeout=%ds\n", timeout);
-	} else {
-		tvp = NULL;
-		printf("No timeout\n");
 	}
-	if (busyq.head != NULL)
-		printf("Head of queue is chan%d (contention=%d)\n", busyq.head->channo, contention());
 	if ((n = select(maxfds, &rfds, &wfds, NULL, tvp)) < 0) {
 		syslog(LOG_ERR, "select failure in chan_poll: %m");
 		exit(1);
@@ -171,7 +162,6 @@ chan_poll()
 	 * the next guy (assuming there is one).
 	 */
 	time(&last_event);
-	printf("Select returned %d.\n", n);
 	if (contention() && (last_event - busyq.head->last_read) >= timeout) {
 		qmove(busyq.head, IDLE_Q);
 		slave_promote();
@@ -194,7 +184,6 @@ chan_poll()
 void
 chan_readon(int fd)
 {
-	printf("Read ON on fd%d\n", fd);
 	if (fd < 0)
 		return;
 	if (maxfds <= fd)
@@ -208,7 +197,6 @@ chan_readon(int fd)
 void
 chan_readoff(int fd)
 {
-	printf("Read OFF on fd%d\n", fd);
 	if (fd >= 0)
 		FD_CLR(fd, &mrdfdset);
 }
@@ -219,7 +207,6 @@ chan_readoff(int fd)
 void
 chan_writeon(int fd)
 {
-	printf("Write ON on fd%d\n", fd);
 	if (fd < 0)
 		return;
 	if (maxfds <= fd)
@@ -233,7 +220,6 @@ chan_writeon(int fd)
 void
 chan_writeoff(int fd)
 {
-	printf("Write OFF on fd%d\n", fd);
 	if (fd >= 0)
 		FD_CLR(fd, &mwrfdset);
 }

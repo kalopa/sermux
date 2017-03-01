@@ -48,7 +48,6 @@ tcp_init(int port)
 	int yes = 1;
 	struct sockaddr_in sin;
 
-	printf("TCP INIT: Port%d\n", port);
 	if ((accept_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("tcp_init: socket failed");
 		exit(1);
@@ -66,7 +65,6 @@ tcp_init(int port)
 		exit(1);
 	}
 	listen(accept_fd, 64);
-	printf("LISTEN Socket UP!\n");
 	chan_readon(accept_fd);
 }
 
@@ -81,15 +79,12 @@ tcp_newconn()
 	struct channel *chp;
 	struct sockaddr_in sin;
 
-	printf("New connection received.\n");
-	len = sizeof(struct sockaddr_in);
 	chp = chan_alloc();
-	printf("Going to accept...\n");
+	len = sizeof(struct sockaddr_in);
 	if ((chp->fd = accept(accept_fd, (struct sockaddr *)&sin, &len)) < 0) {
 		syslog(LOG_INFO, "tcp_newconn failed: %m");
 		return(-1);
 	}
-	printf("Back from accept(). Addr:[%08x]\n", sin.sin_addr.s_addr);
 	chan_readon(chp->fd);
 	return(1);
 }
@@ -105,7 +100,6 @@ tcp_master(char *argstr)
 	struct sockaddr_in sin;
 	in_addr_t addr;
 
-	printf("TCP Remote Init: [%s]\n", argstr);
 	if ((i = crack(argstr, params, 4)) < 1)
 		usage();
 	host = params[0];
@@ -121,7 +115,6 @@ tcp_master(char *argstr)
 		}
 		memcpy((char *)&addr, hp->h_addr, hp->h_length);
 	}
-	printf("%08x\n", addr);
 	master = chan_alloc();
 	if ((master->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("tcp_master: socket");

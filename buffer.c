@@ -95,8 +95,6 @@ buf_read(struct channel *chp)
 		buf_free(bp);
 		return(-1);
 	}
-	printf("Read %d bytes.\n", bp->size);
-	hexdump(bp->data, 0, bp->size);
 	/*
 	 * Stick the buffer on the end of the channel read queue.
 	 */
@@ -130,11 +128,8 @@ buf_write(struct channel *chp, int wrfd)
 	 */
 	bp = chp->bhead;
 	chp->bhead = bp->next;
-	if ((n = write(wrfd, bp->data, bp->size)) != bp->size) {
-		syslog(LOG_INFO, "buffer write failure");
+	if ((n = write(wrfd, bp->data, bp->size)) != bp->size)
 		return(-1);
-	}
-	printf("Wrote %d bytes.\n", n);
 	/*
 	 * Release the buffer and we're done.
 	 */

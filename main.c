@@ -37,8 +37,8 @@
 #define LINESIZE	16
 
 int		debug;
-int		timeout;
 int		running;
+int		timeout;
 
 void	shutdown(int);
 void	usage();
@@ -117,7 +117,7 @@ main(int argc, char *argv[])
 		 */
 		signal(SIGTERM, shutdown);
 		signal(SIGHUP, SIG_IGN);
-		signal(SIGINT, SIG_IGN);
+		signal(SIGINT, shutdown);
 		signal(SIGQUIT, SIG_IGN);
 		signal(SIGPIPE, SIG_IGN);
 		signal(SIGALRM, SIG_IGN);

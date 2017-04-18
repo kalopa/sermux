@@ -32,6 +32,7 @@ OBJS=	$(SRCS:.c=.o)
 all:	sermux
 
 install: sermux
+	$(INSTALL) sermux /usr/local/bin
 
 clean:
 	rm -f sermux $(OBJS)

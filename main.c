@@ -38,7 +38,9 @@
 
 int		debug;
 int		timeout;
+int		running;
 
+void	shutdown(int);
 void	usage();
 
 /*
@@ -54,6 +56,7 @@ main(int argc, char *argv[])
 	portno = 5001;
 	debug = 0;
 	timeout = 5;
+	running = 1;
 	while ((i = getopt(argc, argv, "dp:t:")) != EOF) {
 		switch (i) {
 		case 'p':
@@ -112,7 +115,7 @@ main(int argc, char *argv[])
 		/*
 		 * No signals...
 		 */
-		signal(SIGTERM, SIG_IGN);
+		signal(SIGTERM, shutdown);
 		signal(SIGHUP, SIG_IGN);
 		signal(SIGINT, SIG_IGN);
 		signal(SIGQUIT, SIG_IGN);
@@ -135,7 +138,7 @@ main(int argc, char *argv[])
 	/*
 	 * Now running as a daemon. Get to work!
 	 */
-	while (1)
+	while (running)
 		chan_poll();
 	exit(0);
 }
@@ -189,6 +192,15 @@ hexdump(char *data, int addr, int len)
 		}
 		printf("*\n");
 	}
+}
+
+/*
+ *
+ */
+void
+shutdown(int sig)
+{
+	running = 0;
 }
 
 /*

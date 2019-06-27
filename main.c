@@ -201,6 +201,8 @@ void
 shutdown(int sig)
 {
 	running = 0;
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
 }
 
 /*
